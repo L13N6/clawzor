@@ -1,6 +1,10 @@
 #!/bin/bash
 # setup.sh — One liner OpenClaw + Bionic Bypass
-# Usage: curl -fsSL https://raw.githubusercontent.com/L13N6/clawzor/main/setup.sh | bash
+# Usage (BENAR — agar wizard interaktif):
+#   curl -fsSL https://raw.githubusercontent.com/L13N6/clawzor/main/setup.sh -o setup.sh && bash setup.sh
+#
+# Atau jika openclaw sudah terinstall dan mau setup ulang config:
+#   proot-distro login debian -- bash -c "openclaw setup && openclaw gateway --verbose"
 
 set -e
 
@@ -28,7 +32,9 @@ if $IS_TERMUX; then
   echo ">>> [2/3] Install Debian (skip jika sudah ada)..."
   proot-distro install debian 2>/dev/null || true
 
-  echo ">>> [3/3] Jalankan setup di dalam Debian..."
+  echo ">>> [3/3] Download & jalankan setup di dalam Debian..."
+  # ✅ FIX: download dulu ke file, jangan pipe langsung
+  # Supaya stdin tetap interaktif untuk wizard openclaw
   proot-distro login debian -- bash -c "
     curl -fsSL https://raw.githubusercontent.com/L13N6/clawzor/main/setup.sh -o /tmp/setup.sh
     bash /tmp/setup.sh
@@ -46,30 +52,40 @@ if $IS_PROOT; then
   echo "╚══════════════════════════════════════╝"
   echo ""
 
-  echo ">>> [1/6] Update Debian..."
-  # ✅ FIX: noninteractive mencegah dpkg bertanya konfig file
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update -y
-  apt-get upgrade -y \
-    -o Dpkg::Options::="--force-confdef" \
-    -o Dpkg::Options::="--force-confold"
-  apt-get install -y \
-    -o Dpkg::Options::="--force-confdef" \
-    -o Dpkg::Options::="--force-confold" \
-    curl git build-essential python3 cmake
+  # Cek apakah openclaw sudah terinstall, skip install jika sudah ada
+  OPENCLAW_INSTALLED=false
+  command -v openclaw &>/dev/null && OPENCLAW_INSTALLED=true
 
-  echo ">>> [2/6] Install nvm..."
-  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-  export NVM_DIR="$HOME/.nvm"
-  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  if ! $OPENCLAW_INSTALLED; then
+    echo ">>> [1/6] Update Debian..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y
+    apt-get upgrade -y \
+      -o Dpkg::Options::="--force-confdef" \
+      -o Dpkg::Options::="--force-confold"
+    apt-get install -y \
+      -o Dpkg::Options::="--force-confdef" \
+      -o Dpkg::Options::="--force-confold" \
+      curl git build-essential python3 cmake
 
-  echo ">>> [3/6] Install Node.js v22..."
-  nvm install 22
-  nvm use 22
-  nvm alias default 22
+    echo ">>> [2/6] Install nvm..."
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
-  echo ">>> [4/6] Install OpenClaw..."
-  npm install -g openclaw@latest
+    echo ">>> [3/6] Install Node.js v22..."
+    nvm install 22
+    nvm use 22
+    nvm alias default 22
+
+    echo ">>> [4/6] Install OpenClaw..."
+    npm install -g openclaw@latest
+
+  else
+    echo ">>> OpenClaw sudah terinstall, skip ke setup..."
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  fi
 
   echo ">>> [5/6] Setup Bionic Bypass..."
   mkdir -p ~/.openclawd
@@ -125,19 +141,28 @@ EOF
   echo "    OpenClaw: $(openclaw --version 2>/dev/null || echo 'OK')"
 
   echo ""
-  echo "╔════════════════════════════════════════════╗"
-  echo "║  ✅ Setup selesai! Memulai onboard...      ║"
-  echo "║  Ikuti wizard yang muncul di bawah ini 👇  ║"
-  echo "╚════════════════════════════════════════════╝"
+  echo "╔══════════════════════════════════════════════════════╗"
+  echo "║  ✅ Setup selesai! Memulai konfigurasi OpenClaw...   ║"
+  echo "╚══════════════════════════════════════════════════════╝"
   echo ""
-  sleep 2
+  sleep 1
 
-  # ─── ONBOARD TANPA DAEMON (cocok untuk Android) ───
-  openclaw onboard --no-install-daemon
+  # ─── CEK APAKAH CONFIG SUDAH ADA ───
+  CONFIG_EXISTS=false
+  [ -f "$HOME/.openclawd/config.json" ] && CONFIG_EXISTS=true
+
+  if ! $CONFIG_EXISTS; then
+    echo ">>> Menjalankan wizard konfigurasi..."
+    echo ""
+    # ✅ FIX: redirect stdin dari terminal agar wizard bisa interaktif
+    openclaw setup </dev/tty
+  else
+    echo ">>> Config sudah ada, skip wizard..."
+  fi
 
   echo ""
   echo "╔════════════════════════════════════════════╗"
-  echo "║  🚀 Onboard selesai! Menjalankan Gateway  ║"
+  echo "║  🚀 Menjalankan Gateway...                 ║"
   echo "║  Buka URL yang muncul di browser HP kamu! ║"
   echo "╚════════════════════════════════════════════╝"
   echo ""
@@ -155,4 +180,8 @@ fi
 echo ""
 echo "❌ Environment tidak dikenali."
 echo "   Jalankan script ini di Termux atau di dalam proot-distro Debian."
+echo ""
+echo "   Cara benar:"
+echo "   curl -fsSL https://raw.githubusercontent.com/L13N6/clawzor/main/setup.sh -o setup.sh"
+echo "   bash setup.sh"
 exit 1
