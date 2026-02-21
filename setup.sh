@@ -1,12 +1,12 @@
 #!/bin/bash
-# setup.sh — One liner OpenClaw + Bionic Bypass
-# Usage (BENAR — agar wizard interaktif):
-#   curl -fsSL https://raw.githubusercontent.com/L13N6/clawzor/main/setup.sh -o setup.sh && bash setup.sh
-#
-# Atau jika openclaw sudah terinstall dan mau setup ulang config:
-#   proot-distro login debian -- bash -c "openclaw setup && openclaw gateway --verbose"
+# setup.sh — OpenClaw + Bionic Bypass + Termux Wrapper
+# Usage:
+#   curl -fsSL https://raw.githubusercontent.com/L13N6/clawzor/main/setup.sh -o setup.sh
+#   bash setup.sh
 
 set -e
+
+REPO_RAW="https://raw.githubusercontent.com/L13N6/clawzor/main"
 
 # ─── Deteksi environment ───────────────────────────────────────────
 IS_TERMUX=false
@@ -25,20 +25,82 @@ if $IS_TERMUX; then
   echo "╚══════════════════════════════════════╝"
   echo ""
 
-  echo ">>> [1/3] Update & install proot-distro..."
+  echo ">>> [1/4] Update & install proot-distro..."
   pkg update -y && pkg upgrade -y
   pkg install -y proot-distro curl
 
-  echo ">>> [2/3] Install Debian (skip jika sudah ada)..."
+  echo ">>> [2/4] Install Debian (skip jika sudah ada)..."
   proot-distro install debian 2>/dev/null || true
 
-  echo ">>> [3/3] Download & jalankan setup di dalam Debian..."
-  # ✅ FIX: download dulu ke file, jangan pipe langsung
-  # Supaya stdin tetap interaktif untuk wizard openclaw
+  echo ">>> [3/4] Jalankan setup di dalam Debian..."
   proot-distro login debian -- bash -c "
-    curl -fsSL https://raw.githubusercontent.com/L13N6/clawzor/main/setup.sh -o /tmp/setup.sh
+    curl -fsSL $REPO_RAW/setup.sh -o /tmp/setup.sh
     bash /tmp/setup.sh
   "
+
+  echo ">>> [4/4] Install wrapper 'openclaw' di Termux..."
+
+  # Buat wrapper command di Termux $PREFIX/bin
+  cat > $PREFIX/bin/openclaw << 'WRAPPER'
+#!/bin/bash
+# Wrapper openclaw untuk Termux — redirect ke proot Debian
+
+PROOT_CMD="proot-distro login debian --"
+NVM_LOAD='export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"'
+BYPASS='export NODE_OPTIONS="--require $HOME/.openclawd/bionic-bypass.js"'
+
+case "$1" in
+  onboard)
+    echo ">>> Membuka wizard OpenClaw onboard di Debian..."
+    proot-distro login debian -- bash -c "$NVM_LOAD && $BYPASS && openclaw onboard --no-install-daemon </dev/tty"
+    ;;
+  start)
+    echo ">>> Menjalankan OpenClaw Gateway..."
+    echo ">>> Buka URL yang muncul di browser HP kamu!"
+    echo ""
+    proot-distro login debian -- bash -c "$NVM_LOAD && $BYPASS && NODE_OPTIONS='--require \$HOME/.openclawd/bionic-bypass.js' openclaw gateway --verbose"
+    ;;
+  shell)
+    echo ">>> Membuka shell Debian (proot)..."
+    proot-distro login debian
+    ;;
+  update)
+    echo ">>> Update OpenClaw di Debian..."
+    proot-distro login debian -- bash -c "$NVM_LOAD && npm install -g openclaw@latest"
+    ;;
+  *)
+    echo ""
+    echo "╔══════════════════════════════════════╗"
+    echo "║         OpenClaw — Termux CLI        ║"
+    echo "╚══════════════════════════════════════╝"
+    echo ""
+    echo "  Perintah yang tersedia:"
+    echo ""
+    echo "  openclaw onboard   — Setup & konfigurasi awal"
+    echo "  openclaw start     — Jalankan gateway OpenClaw"
+    echo "  openclaw shell     — Buka shell Debian (proot)"
+    echo "  openclaw update    — Update ke versi terbaru"
+    echo ""
+    ;;
+esac
+WRAPPER
+
+  chmod +x $PREFIX/bin/openclaw
+
+  echo ""
+  echo "╔══════════════════════════════════════════════════════╗"
+  echo "║  ✅ Semua selesai! Wrapper openclaw sudah terpasang  ║"
+  echo "╠══════════════════════════════════════════════════════╣"
+  echo "║                                                      ║"
+  echo "║  Perintah yang bisa dipakai di Termux:               ║"
+  echo "║                                                      ║"
+  echo "║  openclaw onboard  — Setup & konfigurasi awal        ║"
+  echo "║  openclaw start    — Jalankan OpenClaw               ║"
+  echo "║  openclaw shell    — Buka shell Debian               ║"
+  echo "║  openclaw update   — Update OpenClaw                 ║"
+  echo "║                                                      ║"
+  echo "╚══════════════════════════════════════════════════════╝"
+  echo ""
   exit 0
 fi
 
@@ -52,12 +114,11 @@ if $IS_PROOT; then
   echo "╚══════════════════════════════════════╝"
   echo ""
 
-  # Cek apakah openclaw sudah terinstall, skip install jika sudah ada
   OPENCLAW_INSTALLED=false
   command -v openclaw &>/dev/null && OPENCLAW_INSTALLED=true
 
   if ! $OPENCLAW_INSTALLED; then
-    echo ">>> [1/6] Update Debian..."
+    echo ">>> [1/5] Update Debian..."
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -y
     apt-get upgrade -y \
@@ -68,120 +129,89 @@ if $IS_PROOT; then
       -o Dpkg::Options::="--force-confold" \
       curl git build-essential python3 cmake
 
-    echo ">>> [2/6] Install nvm..."
+    echo ">>> [2/5] Install nvm..."
     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
     export NVM_DIR="$HOME/.nvm"
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
-    echo ">>> [3/6] Install Node.js v22..."
+    echo ">>> [3/5] Install Node.js v22..."
     nvm install 22
     nvm use 22
     nvm alias default 22
 
-    echo ">>> [4/6] Install OpenClaw..."
+    echo ">>> [4/5] Install OpenClaw..."
     npm install -g openclaw@latest
 
   else
-    echo ">>> OpenClaw sudah terinstall, skip ke setup..."
+    echo ">>> OpenClaw sudah terinstall, skip instalasi..."
     export NVM_DIR="$HOME/.nvm"
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
   fi
 
-  echo ">>> [5/6] Setup Bionic Bypass..."
+  echo ">>> [5/5] Setup Bionic Bypass..."
   mkdir -p ~/.openclawd
 
   cat > ~/.openclawd/bionic-bypass.js << 'EOF'
-// Bionic Bypass — fix Android/Termux compatibility untuk OpenClaw
 const os = require('os');
 
-// Fix os.networkInterfaces() crash di Android
 const _net = os.networkInterfaces.bind(os);
 os.networkInterfaces = function () {
-  try {
-    return _net();
-  } catch (e) {
-    return {
-      lo: [{
-        address: '127.0.0.1',
-        netmask: '255.0.0.0',
-        family: 'IPv4',
-        mac: '00:00:00:00:00:00',
-        internal: true,
-        cidr: '127.0.0.1/8'
-      }]
-    };
+  try { return _net(); } catch (e) {
+    return { lo: [{ address: '127.0.0.1', netmask: '255.0.0.0',
+      family: 'IPv4', mac: '00:00:00:00:00:00',
+      internal: true, cidr: '127.0.0.1/8' }] };
   }
 };
 
-// Fix os.cpus() crash di beberapa device
 const _cpus = os.cpus.bind(os);
 os.cpus = function () {
-  try {
-    return _cpus();
-  } catch (e) {
-    return [{
-      model: 'Android ARM64',
-      speed: 0,
-      times: { user: 0, nice: 0, sys: 0, idle: 0, irq: 0 }
-    }];
+  try { return _cpus(); } catch (e) {
+    return [{ model: 'Android ARM64', speed: 0,
+      times: { user: 0, nice: 0, sys: 0, idle: 0, irq: 0 } }];
   }
 };
 EOF
 
-  # Set NODE_OPTIONS di .bashrc agar persisten
+  # Set gateway.mode=local agar gateway tidak blocked
+  mkdir -p ~/.openclaw
+  if [ ! -f ~/.openclaw/openclaw.json ]; then
+    echo '{"gateway":{"mode":"local"}}' > ~/.openclaw/openclaw.json
+  else
+    # Inject gateway.mode jika belum ada
+    node -e "
+      const fs = require('fs');
+      const cfg = JSON.parse(fs.readFileSync(process.env.HOME+'/.openclaw/openclaw.json','utf8'));
+      cfg.gateway = cfg.gateway || {};
+      cfg.gateway.mode = 'local';
+      fs.writeFileSync(process.env.HOME+'/.openclaw/openclaw.json', JSON.stringify(cfg, null, 2));
+      console.log('gateway.mode=local sudah diset');
+    " 2>/dev/null || true
+  fi
+
   grep -qxF 'export NODE_OPTIONS="--require $HOME/.openclawd/bionic-bypass.js"' ~/.bashrc || \
     echo 'export NODE_OPTIONS="--require $HOME/.openclawd/bionic-bypass.js"' >> ~/.bashrc
+  grep -qxF 'export NVM_DIR="$HOME/.nvm"' ~/.bashrc || \
+    echo 'export NVM_DIR="$HOME/.nvm"' >> ~/.bashrc
+  grep -qxF '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' ~/.bashrc || \
+    echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> ~/.bashrc
 
-  # Aktifkan langsung di sesi ini
   export NODE_OPTIONS="--require $HOME/.openclawd/bionic-bypass.js"
 
-  echo ">>> [6/6] Verifikasi instalasi..."
+  echo ""
   echo "    Node    : $(node --version)"
   echo "    npm     : $(npm --version)"
   echo "    OpenClaw: $(openclaw --version 2>/dev/null || echo 'OK')"
-
   echo ""
-  echo "╔══════════════════════════════════════════════════════╗"
-  echo "║  ✅ Setup selesai! Memulai konfigurasi OpenClaw...   ║"
-  echo "╚══════════════════════════════════════════════════════╝"
-  echo ""
-  sleep 1
-
-  # ─── CEK APAKAH CONFIG SUDAH ADA ───
-  CONFIG_EXISTS=false
-  [ -f "$HOME/.openclawd/config.json" ] && CONFIG_EXISTS=true
-
-  if ! $CONFIG_EXISTS; then
-    echo ">>> Menjalankan wizard konfigurasi..."
-    echo ""
-    # ✅ FIX: redirect stdin dari terminal agar wizard bisa interaktif
-    openclaw setup </dev/tty
-  else
-    echo ">>> Config sudah ada, skip wizard..."
-  fi
-
-  echo ""
-  echo "╔════════════════════════════════════════════╗"
-  echo "║  🚀 Menjalankan Gateway...                 ║"
-  echo "║  Buka URL yang muncul di browser HP kamu! ║"
-  echo "╚════════════════════════════════════════════╝"
-  echo ""
-  sleep 1
-
-  # ─── JALANKAN GATEWAY ───
-  NODE_OPTIONS="--require $HOME/.openclawd/bionic-bypass.js" openclaw gateway --verbose
-
   exit 0
 fi
 
 # ══════════════════════════════════════════════════════════════════
-# Fallback — Environment tidak dikenali
+# Fallback
 # ══════════════════════════════════════════════════════════════════
 echo ""
 echo "❌ Environment tidak dikenali."
-echo "   Jalankan script ini di Termux atau di dalam proot-distro Debian."
 echo ""
-echo "   Cara benar:"
-echo "   curl -fsSL https://raw.githubusercontent.com/L13N6/clawzor/main/setup.sh -o setup.sh"
-echo "   bash setup.sh"
+echo "Cara benar:"
+echo "  curl -fsSL https://raw.githubusercontent.com/L13N6/clawzor/main/setup.sh -o setup.sh"
+echo "  bash setup.sh"
 exit 1
